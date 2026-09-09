@@ -1,0 +1,34 @@
+{
+    "name": "sloink",
+    "version": "1.0.0",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/dragoncoder047/sloink.git"
+    },
+    "keywords": [],
+    "author": {
+        "name": "dragoncoder047",
+        "url": "https://github.com/dragoncoder047"
+    },
+    "license": "AGPL-3.0-only",
+    "bugs": {
+        "url": "https://github.com/dragoncoder047/sloink/issues"
+    },
+    "homepage": "https://github.com/dragoncoder047/sloink#readme",
+    "devDependencies": {
+        "@happy-dom/global-registrator": "^20.14.0",
+        "@types/bun": "^1.4.2",
+        "typescript": "^7.0.2"
+    },
+    "main": "sloink.ts",
+    "scripts": {
+        "build": "bun build --sourcemap --target=browser --format=esm sloink.ts --outfile=sloink.js",
+        "test": "bun test",
+        "test:watch": "bun test --watch",
+        "prepare": "bun run build --minify"
+    },
+    "dependencies": {
+        "lib0": "^0.2.117"
+    }
+}
