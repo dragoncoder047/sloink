@@ -34,7 +34,7 @@ Uninterned symbols and functions can never be serialized and will always throw a
 
 * `Hole` - Wrapper used to create places that are dynamically filled with a computed value at unsloink-time.
 * `NamespaceResolver` - Used to resolve constructors and builders
-* `unsloinkError` - Thrown when a problem occurs
+* `SloinkError` - Thrown when a problem occurs
 
 [json-mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify
 
