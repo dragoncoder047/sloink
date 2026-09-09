@@ -118,7 +118,7 @@ enum Opcode {
 
 export class Hole { constructor(public data: any) { } }
 
-export type Replacer = (this: any, key: string, obj: any) => any;
+export type Replacer = (this: any, key: string | number, obj: any) => any;
 export type HoleFiller = (holeData: any) => any;
 
 // standard base64 alphabet
@@ -239,11 +239,11 @@ export const sloink = (root: any, resolver: Resolver = new NamespaceResolver({})
         return i;
     }
 
-    const maybeReplace = (obj: any, key: any) => {
+    const maybeReplaceAndVisit = (obj: any, key: any) => {
         var value = obj[key];
         if (replacer && value !== undefined) {
             value = replacer.call(obj, key, value);
-            if (value === undefined) return visit(value);
+            if (value === undefined) return undefined;
             if (value instanceof Hole) {
                 const holeRef = visit(value.data);
                 const holeTarget = newref({}, {});
@@ -281,13 +281,15 @@ export const sloink = (root: any, resolver: Resolver = new NamespaceResolver({})
         if (isArray(obj)) {
             const target = newref(obj, []);
             for (var i = 0; i < obj.length; i++) {
-                commands.push(Opcode.PUSH_ARRAY_ITEM, target, maybeReplace(obj, i));
+                const x = maybeReplaceAndVisit(obj, i);
+                if (x !== undefined) commands.push(Opcode.PUSH_ARRAY_ITEM, target, x);
             }
             return target;
         } else { // object
             const target = newref(obj, {});
             for (var key of Object.getOwnPropertyNames(obj)) {
-                commands.push(Opcode.PROPERTY, target, visit(key), maybeReplace(obj, key));
+                const x = maybeReplaceAndVisit(obj, key);
+                if (x !== undefined) commands.push(Opcode.PROPERTY, target, visit(key), x);
             }
             // Maybe fix prototype
             const constructor = resolver.getConstructorName(obj);

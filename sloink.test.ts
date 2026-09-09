@@ -121,6 +121,18 @@ test("can't sloink uninterned Symbols", () => {
     expect(() => roundtrip(Symbol("foo"))).toThrowError(new SloinkError("Can't sloink uninterned symbols."));
 });
 
+test("replacer can delete keys", () => {
+    const value = { x: 1, y: 2 };
+    const serialized = sloink(value, defaultResolver, (key, value) => key === "y" ? undefined : value);
+    expect(unsloink(serialized)).toEqual({ x: 1 });
+});
+
+test("replacer can delete array elements", () => {
+    const value = [1, 2, "a", "b"];
+    const serialized = sloink(value, defaultResolver, (key, value) => (key as number) & 1 ? value : undefined);
+    expect(unsloink(serialized)).toEqual([2, "b"]);
+});
+
 test("holes", () => {
     const value = { x: 1, y: 2, a: Symbol(234), b: Symbol("hi") };
     const serialized = sloink(value, defaultResolver, (_key, obj) => {
