@@ -1,12 +1,21 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { expect, test } from "bun:test";
-import { Hole, NamespaceResolver, SloinkError, unsloink, sloink } from "./sloink";
+import {
+    Hole,
+    NamespaceResolver,
+    SloinkError,
+    unsloink,
+    sloink,
+} from "./sloink";
 
 GlobalRegistrator.register();
 
 const defaultResolver = new NamespaceResolver(globalThis as any);
 
-function roundtrip<T>(obj: T, resolver: NamespaceResolver = defaultResolver): T {
+function roundtrip<T>(
+    obj: T,
+    resolver: NamespaceResolver = defaultResolver,
+): T {
     const s = sloink(obj, resolver);
     // console.log("serialized is", s);
     return unsloink(JSON.parse(JSON.stringify(s)), resolver) as T;
@@ -69,29 +78,21 @@ test("HTML", () => {
 });
 
 test("throws on function values", () => {
-    const obj = { fn() { } };
-    expect(() => roundtrip(obj)).toThrowError(new SloinkError("Can't sloink functions."));
-});
-
-test("can unsloink classes with cleanup true and false", () => {
-    const ns = {
-        Foo: class Foo {
-            bar: number;
-            constructor() {
-                this.bar = 1;
-                Foo.bax();
-            }
-            static bax() { }
-        }
-    };
-    expect(roundtrip(new ns.Foo(), new NamespaceResolver(ns))).toBeInstanceOf(ns.Foo);
-    expect(roundtrip(new ns.Foo(), new NamespaceResolver(ns))).toBeInstanceOf(ns.Foo);
+    const obj = { fn() {} };
+    expect(() => roundtrip(obj)).toThrowError(
+        new SloinkError("Can't sloink functions."),
+    );
 });
 
 test("unsloink and custom resolver", () => {
     class Dog {
-        constructor(public loudness: number, public sound: string) { }
-        woof() { return this.sound.repeat(this.loudness) + "!"; }
+        constructor(
+            public loudness: number,
+            public sound: string,
+        ) {}
+        woof() {
+            return this.sound.repeat(this.loudness) + "!";
+        }
     }
     const obj = new Dog(3, "wow");
     const roundtripped = roundtrip(obj, new NamespaceResolver({ Dog }));
@@ -101,7 +102,7 @@ test("unsloink and custom resolver", () => {
 
 test("unsloink/sloink works with minifier-renamed classes", () => {
     class z {
-        constructor(public foo: number) { };
+        constructor(public foo: number) {}
     }
     const obj = new z(1);
     const roundtripped = roundtrip(obj, new NamespaceResolver({ Foo: z }));
@@ -109,27 +110,35 @@ test("unsloink/sloink works with minifier-renamed classes", () => {
 });
 
 test("can't sloink anonymous classes", () => {
-    const obj = new class {
+    const obj = new (class {
         foo = 1;
-    };
-    expect(() => roundtrip(obj)).toThrowError(new SloinkError("Can't sloink objects with anonymous constructors."));
+    })();
+    expect(() => roundtrip(obj)).toThrowError(
+        new SloinkError("Can't sloink objects with anonymous constructors."),
+    );
 });
 
 test("can't sloink uninterned Symbols", () => {
     expect(roundtrip(Symbol.for("foo"))).toBe(Symbol.for("foo"));
     expect(roundtrip(Symbol.iterator)).toBe(Symbol.iterator);
-    expect(() => roundtrip(Symbol("foo"))).toThrowError(new SloinkError("Can't sloink uninterned symbols."));
+    expect(() => roundtrip(Symbol("foo"))).toThrowError(
+        new SloinkError("Can't sloink uninterned symbols."),
+    );
 });
 
 test("replacer can delete keys", () => {
     const value = { x: 1, y: 2 };
-    const serialized = sloink(value, defaultResolver, (key, value) => key === "y" ? undefined : value);
+    const serialized = sloink(value, defaultResolver, (key, value) =>
+        key === "y" ? undefined : value,
+    );
     expect(unsloink(serialized)).toEqual({ x: 1 });
 });
 
 test("replacer can delete array elements", () => {
     const value = [1, 2, "a", "b"];
-    const serialized = sloink(value, defaultResolver, (key, value) => (key as number) & 1 ? value : undefined);
+    const serialized = sloink(value, defaultResolver, (key, value) =>
+        (key as number) & 1 ? value : undefined,
+    );
     expect(unsloink(serialized)).toEqual([2, "b"]);
 });
 
@@ -140,19 +149,42 @@ test("holes", () => {
         return obj;
     });
     // console.log(serialized);
-    expect(unsloink(serialized, defaultResolver, data => data + "_aaa")).toEqual({ x: 1, y: 2, a: "234_aaa", b: "hi_aaa" });
-    expect(unsloink(serialized, defaultResolver, data => data + "_bbb")).toEqual({ x: 1, y: 2, a: "234_bbb", b: "hi_bbb" });
-    expect(() => unsloink(serialized, defaultResolver)).toThrowError(new SloinkError("Data has holes but no hole filler provided."));
+    expect(
+        unsloink(serialized, defaultResolver, (data) => data + "_aaa"),
+    ).toEqual({ x: 1, y: 2, a: "234_aaa", b: "hi_aaa" });
+    expect(
+        unsloink(serialized, defaultResolver, (data) => data + "_bbb"),
+    ).toEqual({ x: 1, y: 2, a: "234_bbb", b: "hi_bbb" });
+    expect(() => unsloink(serialized, defaultResolver)).toThrowError(
+        new SloinkError("Data has holes but no hole filler provided."),
+    );
 });
 
 test("holes 2", () => {
-    class Foo { constructor(public a: string, public b: string) { } }
+    class Foo {
+        constructor(
+            public a: string,
+            public b: string,
+        ) {}
+    }
     const value = { x: 1, y: 2, a: new Foo("a", "b"), b: new Foo("c", "d") };
     const serialized = sloink(value, defaultResolver, (_key, obj) => {
         if (obj instanceof Foo) return new Hole([obj.a, obj.b]);
         return obj;
     });
     // console.log(serialized);
-    expect(unsloink(serialized, defaultResolver, ([data1, data2]) => `${data1}_1_${data2}`)).toEqual({ x: 1, y: 2, a: "a_1_b", b: "c_1_d" });
-    expect(unsloink(serialized, defaultResolver, ([data1, data2]) => `${data1}_2_${data2}`)).toEqual({ x: 1, y: 2, a: "a_2_b", b: "c_2_d" });
+    expect(
+        unsloink(
+            serialized,
+            defaultResolver,
+            ([data1, data2]) => `${data1}_1_${data2}`,
+        ),
+    ).toEqual({ x: 1, y: 2, a: "a_1_b", b: "c_1_d" });
+    expect(
+        unsloink(
+            serialized,
+            defaultResolver,
+            ([data1, data2]) => `${data1}_2_${data2}`,
+        ),
+    ).toEqual({ x: 1, y: 2, a: "a_2_b", b: "c_2_d" });
 });

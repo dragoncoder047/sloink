@@ -11,12 +11,7 @@
         "strictNullChecks": true,
         "moduleResolution": "Bundler",
         "module": "ESNext",
-        "lib": [
-            "esnext",
-            "dom",
-        ],
-        "types": [
-            "bun",
-        ]
+        "lib": ["esnext", "dom"],
+        "types": ["bun"]
     }
 }
