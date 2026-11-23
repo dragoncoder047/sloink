@@ -113,17 +113,17 @@ to this:
 
 ```ts
 import { sloink as s, NamespaceResolver as e } from "sloink";
-var c = class d {
+let c = class d {
     constructor() {
         this.bar = true;
         d.bax(this);
     }
     static bax(obj) {}
 };
-var m = new e({
+let m = new e({
     Foo: c, // <== Always uses name given here
 });
-var a = s(someObj, m);
+let a = s(someObj, m);
 ```
 
 In the serializer above, the "name" given to the class will always be `Foo`,

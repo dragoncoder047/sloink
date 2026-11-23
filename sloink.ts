@@ -154,9 +154,9 @@ const reverse_alphabet = new Map([...alphabet].map((c, i) => [c, BigInt(i)]));
 const zigzag = (x: bigint) => (x >= 0n ? x << 1n : (-x << 1n) - 1n);
 const zigzagInv = (x: bigint) => (x & 1n ? -((x >> 1n) + 1n) : x >> 1n);
 const encodeCmds = (array: number[]): string => {
-    var out = "";
-    for (var el of array) {
-        var n = zigzag(BigInt(el));
+    let out = "";
+    for (let el of array) {
+        let n = zigzag(BigInt(el));
         do {
             // Grab 5 bits
             const chunk = Number(n & 31n);
@@ -168,8 +168,8 @@ const encodeCmds = (array: number[]): string => {
 };
 const decodeCmds = (string: string): number[] => {
     const out = [];
-    for (var i = 0; i < string.length;) {
-        var value = 0n,
+    for (let i = 0; i < string.length;) {
+        let value = 0n,
             token,
             shift = 0n;
         do {
@@ -294,7 +294,7 @@ export const sloink = (
     };
 
     const maybeReplaceAndVisit = (obj: any, key: any) => {
-        var value = obj[key];
+        let value = obj[key];
         if (replacer && value !== undefined) {
             value = replacer.call(obj, key, value);
             if (value === undefined) return undefined;
@@ -321,8 +321,8 @@ export const sloink = (
         if (isJSONAtom(obj)) {
             return newref(obj, obj);
         }
-        var bCmd = Opcode.BUILD_KNOWN;
-        var build: [string | number, any[]] | null = toKnownBuilder(obj);
+        let bCmd = Opcode.BUILD_KNOWN;
+        let build: [string | number, any[]] | null = toKnownBuilder(obj);
         if (build === null) {
             bCmd = Opcode.BUILD_OTHER;
             build = resolver.toBuilder(obj);
@@ -340,7 +340,7 @@ export const sloink = (
         }
         if (isArray(obj)) {
             const target = newref(obj, []);
-            for (var i = 0; i < obj.length; i++) {
+            for (let i = 0; i < obj.length; i++) {
                 const x = maybeReplaceAndVisit(obj, i);
                 if (x !== undefined)
                     commands.push(Opcode.PUSH_ARRAY_ITEM, target, x);
@@ -349,7 +349,7 @@ export const sloink = (
         } else {
             // object
             const target = newref(obj, {});
-            for (var key of Object.getOwnPropertyNames(obj)) {
+            for (let key of Object.getOwnPropertyNames(obj)) {
                 const x = maybeReplaceAndVisit(obj, key);
                 if (x !== undefined)
                     commands.push(Opcode.PROPERTY, target, visit(key), x);
@@ -389,7 +389,7 @@ export const unsloink = (
     const s = json[0];
     if (!isString(s)) return json;
     const commands = decodeCmds(s);
-    var ip = 0;
+    let ip = 0;
     loop: while (ip < commands.length) {
         const cmd = commands[ip++] as Opcode;
         switch (cmd) {
@@ -418,7 +418,7 @@ export const unsloink = (
                     const typename = json[commands[ip++]];
                     const argc = json[commands[ip++]];
                     const argv = [];
-                    for (var i = 0; i < argc; i++)
+                    for (let i = 0; i < argc; i++)
                         argv.push(json[commands[ip++]]);
                     json[target] =
                         cmd === Opcode.BUILD_KNOWN
