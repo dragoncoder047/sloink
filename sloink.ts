@@ -1,13 +1,12 @@
 /**
- * Sloink, an object serialization library inspired by unsloink.js
+ * Sloink, an object serialization library inspired by Resurrect.js
+ *
+ * By dragoncoder047
  *
  * @license AGPLv3
  * @version 3.0.0
  */
 
-import { isArray } from "lib0/array";
-import { isNumber } from "lib0/function";
-import { keys } from "lib0/object";
 
 export class SloinkError extends Error {}
 
@@ -23,6 +22,7 @@ const isDate = is<Date>("Date");
 const isURL = is<URL>("URL");
 const isRegExp = is<RegExp>("RegExp");
 const isString = is<string>("String");
+const isNumber = is<number>("Number");
 const isSet = is<Set<unknown>>("Set");
 const isMap = is<Map<unknown, unknown>>("Map");
 const isSymbol = is<symbol>("Symbol");
@@ -64,8 +64,6 @@ export abstract class Resolver {
     /** Reverse of {@link toBuilder}, constructs the object from the arguments. */
     build(typeName: string, args: any[]) {
         const type = this.getConstructor(typeName);
-        // Special case for BigInt since it's not an object but not JSONable
-        if (type === (BigInt as any)) return BigInt(args[0]);
         // Brilliant hack by kybernetikos
         const result: any = new (type.bind.apply(
             type,
@@ -77,20 +75,20 @@ export abstract class Resolver {
      * Gets the prototype of the given property name from an object. Should
      * throw an error if not found.
      */
-    abstract getPrototype(name: string): any;
+    abstract getPrototype(name: PropertyKey): any;
     /**
      * Gets the prototype name for an object, to be fetched later with
      * {@link getPrototype} and {@link getConstructor}.
      *
      * @returns Null if the constructor is `Object` or `Array`.
      */
-    abstract getConstructorName(object: object): string | null;
+    abstract getConstructorName(object: object): PropertyKey | null;
     /** Get the constructor function for the object prototype name. */
     abstract getConstructor(name: string): new (...args: any[]) => any;
 }
 
 export class NamespaceResolver extends Resolver {
-    constructor(public scope: Record<string, new (...args: any[]) => any>) {
+    constructor(public scope: Record<PropertyKey, new (...args: any[]) => any>) {
         super();
     }
     getPrototype(name: string): any {
@@ -100,10 +98,10 @@ export class NamespaceResolver extends Resolver {
         }
         throw new SloinkError("Unknown constructor: " + name);
     }
-    getConstructorName(object: object): string | null {
+    getConstructorName(object: object): PropertyKey | null {
         const constructorFun = object.constructor;
         let constructor =
-            keys(this.scope).find(
+            Reflect.ownKeys(this.scope).find(
                 (realName) => this.scope[realName] === constructorFun,
             ) ?? constructorFun.name;
         if (constructor == null) {
@@ -130,58 +128,12 @@ export class NamespaceResolver extends Resolver {
     }
 }
 
-enum Opcode {
-    RESULT, // resultIndex,
-    PROPERTY, // targetIndex, keyIndex, valueIndex
-    PUSH_ARRAY_ITEM, // targetIndex, itemIndex
-    BUILD_KNOWN, // targetIndex, typecodeIndex, argc, ...argvIndices
-    BUILD_OTHER, // targetIndex, typecodeIndex, argc, ...argvIndices
-    FIX_PROTO, // targetIndex, protocodeIndex
-    FILL_HOLE, // targetIndex, holeDataIndex
-}
-
 export class Hole {
     constructor(public data: any) {}
 }
 
 export type Replacer = (this: any, key: string | number, obj: any) => any;
 export type HoleFiller = (holeData: any) => any;
-
-// standard base64 alphabet
-const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const reverse_alphabet = new Map([...alphabet].map((c, i) => [c, BigInt(i)]));
-const zigzag = (x: bigint) => (x >= 0n ? x << 1n : (-x << 1n) - 1n);
-const zigzagInv = (x: bigint) => (x & 1n ? -((x >> 1n) + 1n) : x >> 1n);
-const encodeCmds = (array: number[]): string => {
-    let out = "";
-    for (let el of array) {
-        let n = zigzag(BigInt(el));
-        do {
-            // Grab 5 bits
-            const chunk = Number(n & 31n);
-            n >>= 5n;
-            out += alphabet[(n > 0n ? 32 : 0) + chunk];
-        } while (n > 0n);
-    }
-    return out;
-};
-const decodeCmds = (string: string): number[] => {
-    const out = [];
-    for (let i = 0; i < string.length;) {
-        let value = 0n,
-            token,
-            shift = 0n;
-        do {
-            token = reverse_alphabet.get(string.charAt(i)!)!;
-            value |= (token & 31n) << shift;
-            i++;
-            shift += 5n;
-        } while (token & 32n);
-        out.push(Number(zigzagInv(value)));
-    }
-    return out;
-};
 
 enum KnownBuildType {
     MAP,
@@ -206,7 +158,7 @@ const toKnownBuilder = (
         return [KnownBuildType.MAP, [...obj.entries()]];
     } else if (isSet(obj)) {
         return [KnownBuildType.SET, [...obj.values()]];
-    } else if (obj instanceof Node) {
+    } else if ("Node" in globalThis && obj instanceof Node) {
         return [
             KnownBuildType.HTML,
             [new XMLSerializer().serializeToString(obj)],
@@ -267,13 +219,20 @@ const buildKnown = (typecode: KnownBuildType, argv: any[]) => {
             return Symbol[argv[0] as keyof SymbolConstructor];
         default:
             typecode satisfies never;
-            throw new SloinkError("unknown build opcode");
+            throw new SloinkError("unknown build opcode " + typecode);
     }
 };
 
-class Reference {
-    constructor(public index: number) {}
-    count = 1;
+enum Opcode {
+    LITERAL,
+    ARRAY,
+    OBJECT,
+    PROTOTYPE,
+    BUILD_KNOWN,
+    BUILD_OTHER,
+    HOLE_BUILD,
+    NEW_REF,
+    GET_REF,
 }
 
 export const sloink = (
@@ -281,46 +240,52 @@ export const sloink = (
     resolver: Resolver = new NamespaceResolver({}),
     replacer?: Replacer,
 ) => {
-    const table: any[] = [,]; // placeholder for command string
-    const indices = new Map<any, Reference>();
+    if (isJSONAtom(root)) return root;
 
-    const commands: (number | Reference)[] = [];
+    class Reference {
+        constructor(readonly obj: any) {}
+        count = 1;
+    }
 
-    const newref = (src: any, clone: any) => {
-        const i = new Reference(table.length);
-        table.push(clone);
-        indices.set(src, i);
-        return i;
-    };
+    const references = new Map<any, Reference>();
 
-    const maybeReplaceAndVisit = (obj: any, key: any) => {
+    const getReplacement = (
+        obj: any,
+        key: any,
+    ): [deleted: boolean, value?: any] => {
         let value = obj[key];
         if (replacer && value !== undefined) {
             value = replacer.call(obj, key, value);
-            if (value === undefined) return undefined;
-            if (value instanceof Hole) {
-                const holeRef = visit(value.data);
-                const holeTarget = newref({}, {});
-                commands.push(Opcode.FILL_HOLE, holeTarget, holeRef);
-                return holeTarget;
+            if (value === undefined) {
+                return [true];
             }
         }
-        return visit(value);
+        return [false, value];
     };
 
-    // assign object to slot in table, process if not found, otherwise return index
-    const visit = (obj: any): Reference | number => {
+    const visitReplacement = (value: any) => {
+        return value instanceof Hole
+            ? [Opcode.HOLE_BUILD, ...visit(value.data)]
+            : visit(value);
+    };
+
+    const visit = (obj: any): any[] => {
         if (obj === undefined) {
-            return -1;
+            return [Opcode.GET_REF, -1];
         }
-        const ref = indices.get(obj);
+
+        const ref = references.get(obj);
         if (ref) {
             ref.count++;
-            return ref;
+            return [ref];
         }
+        const myRef = new Reference(obj);
+        references.set(obj, myRef);
+
         if (isJSONAtom(obj)) {
-            return newref(obj, obj);
+            return [myRef, Opcode.LITERAL, obj];
         }
+
         let bCmd = Opcode.BUILD_KNOWN;
         let build: [string | number, any[]] | null = toKnownBuilder(obj);
         if (build === null) {
@@ -328,56 +293,68 @@ export const sloink = (
             build = resolver.toBuilder(obj);
         }
         if (build !== null) {
-            const target = newref(obj, {});
-            commands.push(
+            return [
                 bCmd,
-                target,
-                visit(build[0]),
-                visit(build[1].length),
-                ...build[1].map((b) => visit(b)),
-            );
-            return target;
+                ...visit(build[0]),
+                build[1].length,
+                ...build[1].flatMap(visit),
+            ];
         }
-        if (isArray(obj)) {
-            const target = newref(obj, []);
+
+        if (Array.isArray(obj)) {
+            const out: any[] = [myRef, Opcode.ARRAY, 0];
             for (let i = 0; i < obj.length; i++) {
-                const x = maybeReplaceAndVisit(obj, i);
-                if (x !== undefined)
-                    commands.push(Opcode.PUSH_ARRAY_ITEM, target, x);
+                const [deleted, replacement] = getReplacement(obj, i);
+                if (!deleted) {
+                    out[2]++;
+                    out.push(...visitReplacement(replacement));
+                }
             }
-            return target;
+            return out;
         } else {
-            // object
-            const target = newref(obj, {});
-            for (let key of Object.getOwnPropertyNames(obj)) {
-                const x = maybeReplaceAndVisit(obj, key);
-                if (x !== undefined)
-                    commands.push(Opcode.PROPERTY, target, visit(key), x);
+            const out: any[] = [myRef, Opcode.OBJECT, 0];
+            const keys = Reflect.ownKeys(obj);
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                const [deleted, replacement] = getReplacement(obj, key);
+                if (!deleted) {
+                    out[2]++;
+                    out.push(...visit(key), ...visitReplacement(replacement));
+                }
             }
-            // Maybe fix prototype
             const constructor = resolver.getConstructorName(obj);
             if (constructor) {
-                const proto = Object.getPrototypeOf(obj);
+                const proto = Reflect.getPrototypeOf(obj);
                 if (resolver.getPrototype(constructor) !== proto) {
                     throw new SloinkError("Constructor mismatch!");
                 } else {
-                    commands.push(Opcode.FIX_PROTO, target, visit(constructor));
+                    out.unshift(Opcode.PROTOTYPE, ...visit(constructor));
                 }
             }
-            return target;
+            return out;
         }
     };
-    commands.push(Opcode.RESULT, visit(root));
-    // sort references by size
-    const allRefs = [...indices.values()].sort((a, b) => b.count - a.count);
-    return [
-        encodeCmds(
-            commands.map((c) =>
-                c instanceof Reference ? allRefs.indexOf(c) + 1 : c,
-            ),
-        ),
-        ...allRefs.map((r) => table[r.index]),
-    ];
+    const commandsAndReferences = visit(root);
+    const out: any[] = [];
+    const refsToIndices = new Map<Reference, number>();
+    for (let i = 0; i < commandsAndReferences.length; i++) {
+        const item = commandsAndReferences[i]!;
+        if (item instanceof Reference) {
+            if (item.count > 1) {
+                if (refsToIndices.has(item)) {
+                    out.push(Opcode.GET_REF, refsToIndices.get(item));
+                } else {
+                    out.push(
+                        Opcode.NEW_REF,
+                        refsToIndices.getOrInsert(item, refsToIndices.size),
+                    );
+                }
+            }
+        } else {
+            out.push(item);
+        }
+    }
+    return out;
 };
 
 export const unsloink = (
@@ -385,72 +362,71 @@ export const unsloink = (
     resolver: Resolver = new NamespaceResolver({}),
     holeFiller?: HoleFiller,
 ) => {
-    if (!isArray(json)) return json;
-    const s = json[0];
-    if (!isString(s)) return json;
-    const commands = decodeCmds(s);
+    if (!Array.isArray(json)) return json;
     let ip = 0;
-    loop: while (ip < commands.length) {
-        const cmd = commands[ip++] as Opcode;
-        switch (cmd) {
-            case Opcode.RESULT: {
-                return json[commands[ip++]];
+    const registers: any[] = [];
+    const get = (installRef: (obj: any) => void = () => {}): any => {
+        const command = json[ip++] as Opcode;
+        switch (command) {
+            case Opcode.LITERAL: {
+                const value = json[ip++];
+                installRef(value);
+                return value;
             }
-            case Opcode.PROPERTY:
-                {
-                    const target = json[commands[ip++]];
-                    const key = json[commands[ip++]];
-                    const value = json[commands[ip++]];
-                    target[key] = value;
+            case Opcode.ARRAY: {
+                const elements = json[ip++] as number;
+                const out: any[] = Array(elements);
+                installRef(out);
+                for (let i = 0; i < elements; i++) out[i] = get();
+                return out;
+            }
+            case Opcode.OBJECT: {
+                const pairs = json[ip++] as number;
+                const out: any = {};
+                installRef(out);
+                for (let i = 0; i < pairs; i++) {
+                    const key = get();
+                    const val = get();
+                    out[key] = val;
                 }
-                break;
-            case Opcode.PUSH_ARRAY_ITEM:
-                {
-                    const target = json[commands[ip++]];
-                    const value = json[commands[ip++]];
-                    target.push(value);
-                }
-                break;
+                return out;
+            }
+            case Opcode.PROTOTYPE: {
+                const typecode = get();
+                const obj = get();
+                Reflect.setPrototypeOf(obj, resolver.getPrototype(typecode));
+                return obj;
+            }
             case Opcode.BUILD_KNOWN:
-            case Opcode.BUILD_OTHER:
-                {
-                    const target = commands[ip++];
-                    const typename = json[commands[ip++]];
-                    const argc = json[commands[ip++]];
-                    const argv = [];
-                    for (let i = 0; i < argc; i++)
-                        argv.push(json[commands[ip++]]);
-                    json[target] =
-                        cmd === Opcode.BUILD_KNOWN
-                            ? buildKnown(typename, argv)
-                            : resolver.build(typename, argv);
-                }
-                break;
-            case Opcode.FIX_PROTO:
-                {
-                    const target = json[commands[ip++]];
-                    const protocode = json[commands[ip++]];
-                    Object.setPrototypeOf(
-                        target,
-                        resolver.getPrototype(protocode),
+            case Opcode.BUILD_OTHER: {
+                const typecode = get();
+                const argc = json[ip++];
+                const argv: any[] = [];
+                for (let i = 0; i < argc; i++) argv[i] = get();
+                return command === Opcode.BUILD_KNOWN
+                    ? buildKnown(typecode, argv)
+                    : resolver.build(typecode, argv);
+            }
+            case Opcode.HOLE_BUILD: {
+                if (!holeFiller) {
+                    throw new SloinkError(
+                        "Data has holes but no hole filler provided.",
                     );
                 }
-                break;
-            case Opcode.FILL_HOLE:
-                {
-                    if (!holeFiller)
-                        throw new SloinkError(
-                            "Data has holes but no hole filler provided.",
-                        );
-                    const target = commands[ip++];
-                    const data = json[commands[ip++]];
-                    json[target] = holeFiller(data);
-                }
-                break;
-            default:
-                cmd satisfies never;
-                break loop;
+                return holeFiller(get());
+            }
+            case Opcode.NEW_REF: {
+                const slot = json[ip++];
+                return get((obj) => (registers[slot] = obj));
+            }
+            case Opcode.GET_REF: {
+                const slot = json[ip++];
+                return registers[slot];
+            }
+            default: {
+                throw new SloinkError("Corrupted command array!");
+            }
         }
-    }
-    throw new SloinkError("Corrupted command string!");
+    };
+    return get();
 };

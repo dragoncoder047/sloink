@@ -68,7 +68,7 @@ const resolver = new NamespaceResolver({ Dog });
 const original = { pet: new Dog("woof") };
 
 const payload = JSON.stringify(sloink(original, resolver));
-// payload can now be JSON.stringified and saved to disk,
+// payload can now be saved to disk,
 // sent over the network, etc...
 const revived = unsloink(JSON.parse(payload), resolver);
 
@@ -130,18 +130,17 @@ In the serializer above, the "name" given to the class will always be `Foo`,
 even though the `.name` of the constructor is `c` and might be different on the
 next build.
 
-If the constructor cannot be resolved, serialization will throw a
-`unsloinkError`.
+If the constructor cannot be resolved, serialization will throw an error.
 
 ### Well-known types
 
 The resolver will not be called for:
 
-- Date
-- URL
-- RegExp
-- Map
-- Set
+- Date [^1]
+- URL [^1]
+- RegExp [^1]
+- Map [^1]
+- Set [^1]
 - BigInt
 - NaN / Infinity / -Infinity
 - DOM elements
@@ -213,7 +212,9 @@ while `build()` performs the actual construction step.
 A `Hole` is a placeholder for a value that should be filled later during
 deserialization instead of being serialized literally. This is useful when the
 actual value depends on runtime state, a database lookup, or some other data
-that is only known when the payload is being revived.
+that is only known when the payload is being revived. It is a simpler
+alternative to making a custom resolver that uses the builder mechanism to do
+this.
 
 The pattern is:
 

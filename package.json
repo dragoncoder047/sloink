@@ -1,6 +1,6 @@
 {
     "name": "sloink",
-    "version": "1.0.1",
+    "version": "2.0.0",
     "type": "module",
     "repository": {
         "type": "git",
@@ -17,8 +17,8 @@
     },
     "homepage": "https://github.com/dragoncoder047/sloink#readme",
     "devDependencies": {
-        "@happy-dom/global-registrator": "^20.14.0",
-        "@types/bun": "^1.4.2",
+        "@happy-dom/global-registrator": "^21.0.4",
+        "@types/bun": "^1.4.5",
         "typescript": "^7.0.2"
     },
     "main": "sloink.ts",
@@ -27,8 +27,5 @@
         "test": "bun test",
         "test:watch": "bun test --watch",
         "prepare": "bun run build --minify"
-    },
-    "dependencies": {
-        "lib0": "^0.2.117"
     }
 }
