@@ -58,11 +58,11 @@ export abstract class Resolver {
      * has hidden state and must be initialized) or null if all the enumerable
      * keys hold the state
      */
-    toBuilder(obj: any): [string, any[]] | null {
+    toBuilder(obj: any): [PropertyKey, any[]] | null {
         return null;
     }
     /** Reverse of {@link toBuilder}, constructs the object from the arguments. */
-    build(typeName: string, args: any[]) {
+    build(typeName: PropertyKey, args: any[]) {
         const type = this.getConstructor(typeName);
         // Brilliant hack by kybernetikos
         const result: any = new (type.bind.apply(
@@ -84,19 +84,19 @@ export abstract class Resolver {
      */
     abstract getConstructorName(object: object): PropertyKey | null;
     /** Get the constructor function for the object prototype name. */
-    abstract getConstructor(name: string): new (...args: any[]) => any;
+    abstract getConstructor(name: PropertyKey): new (...args: any[]) => any;
 }
 
 export class NamespaceResolver extends Resolver {
     constructor(public scope: Record<PropertyKey, new (...args: any[]) => any>) {
         super();
     }
-    getPrototype(name: string): any {
+    getPrototype(name: PropertyKey): any {
         const constructor = this.scope[name];
         if (constructor) {
             return constructor.prototype;
         }
-        throw new SloinkError("Unknown constructor: " + name);
+        throw new SloinkError("Unknown constructor: " + String(name));
     }
     getConstructorName(object: object): PropertyKey | null {
         const constructorFun = object.constructor;
@@ -120,9 +120,9 @@ export class NamespaceResolver extends Resolver {
             ? null
             : constructor;
     }
-    getConstructor(name: string): new (...args: any[]) => any {
+    getConstructor(name: PropertyKey): new (...args: any[]) => any {
         return (this.scope[name] ??
-            name.split(/\./).reduce((object, name) => {
+            String(name).split(/\./).reduce((object, name) => {
                 return (object as any)[name];
             }, globalThis)) as unknown as new () => any;
     }
@@ -132,7 +132,7 @@ export class Hole {
     constructor(public data: any) {}
 }
 
-export type Replacer = (this: any, key: string | number, obj: any) => any;
+export type Replacer = (this: any, key: PropertyKey, obj: any) => any;
 export type HoleFiller = (holeData: any) => any;
 
 enum KnownBuildType {
@@ -287,7 +287,7 @@ export const sloink = (
         }
 
         let bCmd = Opcode.BUILD_KNOWN;
-        let build: [string | number, any[]] | null = toKnownBuilder(obj);
+        let build: [PropertyKey, any[]] | null = toKnownBuilder(obj);
         if (build === null) {
             bCmd = Opcode.BUILD_OTHER;
             build = resolver.toBuilder(obj);
